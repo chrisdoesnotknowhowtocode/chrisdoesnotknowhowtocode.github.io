@@ -1,0 +1,49 @@
+body {
+  font-family: Arial, sans-serif;
+  line-height: 1.6;
+  margin: 0;
+  padding: 16px;
+  background-color: #f4f6f8;
+  color: #222;
+}
+
+header {
+  background-color: #076e58;
+  color: white;
+  padding: 24px;
+  border-radius: 8px;
+}
+
+main {
+  max-width: 700px;
+  margin: 25px auto;
+}
+
+section {
+  background-color: white;
+  padding: 20px;
+  margin-bottom: 20px;
+  border-radius: 8px;
+}
+
+h1,
+h2 {
+  margin-top: 0;
+}
+
+a {
+  color: #2563eb;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+footer {
+  text-align: center;
+  padding: 16px;
+  color: #555;
+}
+

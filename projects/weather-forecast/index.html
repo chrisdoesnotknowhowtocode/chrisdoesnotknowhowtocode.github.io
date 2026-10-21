@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>7-Day Weather Forecast (Open-Meteo)</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-lg-8">
+          <h1 class="mb-2 mt-5">7-Day Weather Forecast</h1>
+          <p class="text-muted mb-4">
+            Type the name of any town or city and press Search. Data comes from
+            the free, no-key Open-Meteo API. Just like before we use two steps:
+            first we look up the place to get its latitude and longitude, then
+            we ask for the forecast at that exact spot.
+          </p>
+
+          <!-- The search box. A form so pressing Enter also searches. -->
+          <form id="search-form" class="row g-2 mb-4">
+            <div class="col">
+              <input
+                id="search-input"
+                type="text"
+                class="form-control"
+                placeholder="e.g. Melbourne"
+                value=""
+              />
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-primary">Search</button>
+            </div>
+          </form>
+
+          <!-- A place to report progress and problems to the user. -->
+          <div id="status" class="mb-3"></div>
+
+          <!-- A short summary line once everything has loaded. -->
+          <p id="summary" class="fw-bold"></p>
+
+          <!-- The forecast table is built here by JavaScript. -->
+          <table class="table table-striped">
+            <thead>
+              <tr>
+                <th scope="col">Day</th>
+                <th scope="col">Low</th>
+                <th scope="col">High</th>
+                <th scope="col">Rain</th>
+                <th scope="col">Wind</th>
+              </tr>
+            </thead>
+            <tbody id="forecast-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const formEl = document.querySelector("#search-form");
+      const inputEl = document.querySelector("#search-input");
+      const statusEl = document.querySelector("#status");
+      const summaryEl = document.querySelector("#summary");
+      const bodyEl = document.querySelector("#forecast-body");
+
+      // Open-Meteo gives us seven days of daily data in one request.
+      const FORECAST_DAYS = 7;
+
+      // Build status messages with DOM methods so user-typed place names stay text.
+      const showStatus = (message, kind) => {
+        statusEl.innerHTML = "";
+
+        const alertEl = document.createElement("div");
+        alertEl.className = `alert alert-${kind}`;
+        alertEl.textContent = message;
+
+        statusEl.appendChild(alertEl);
+      };
+
+      // Turn a date like "2026-06-17" into a friendly Australian "Wed, 17 Jun".
+      const formatDay = (isoDate) => {
+        const date = new Date(isoDate);
+        return date.toLocaleDateString("en-AU", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        });
+      };
+
+      // STEP 1 — LOOK UP the place by name to get its latitude and longitude.
+      // The geocoding endpoint returns { results: [ { name, country, latitude,
+      // longitude }, ... ] }. The best match is first, so we take results[0].
+      const findPlace = async (name) => {
+        // URLSearchParams builds the "?name=Berlin&count=1" part for us and
+        // safely escapes spaces and odd characters, so we never glue strings
+        // together by hand.
+        const params = new URLSearchParams({
+          name: name,
+          count: 1,
+          language: "en",
+          format: "json",
+        });
+        const url = `https://geocoding-api.open-meteo.com/v1/search?${params}`;
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Place search failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+        // When nothing matches, Open-Meteo leaves out the "results" key, so we
+        // treat both "missing" and "empty" the same way.
+        if (!data.results || data.results.length === 0) {
+          throw new Error(`No place matched "${name}".`);
+        }
+
+        const best = data.results[0];
+        return {
+          name: best.name,
+          country: best.country,
+          latitude: best.latitude,
+          longitude: best.longitude,
+        };
+      };
+
+      // STEP 2 — FETCH the daily forecast for those coordinates.
+      // We ask for three daily values. Open-Meteo returns them as parallel
+      // arrays: daily.time[i], daily.temperature_2m_min[i] and so on all
+      // describe the SAME day i.
+      const loadForecast = async (latitude, longitude) => {
+        const params = new URLSearchParams({
+          latitude: latitude,
+          longitude: longitude,
+          daily:
+            "temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max",
+          wind_speed_unit: "kmh",
+          forecast_days: FORECAST_DAYS,
+          timezone: "auto",
+        });
+        const url = `https://api.open-meteo.com/v1/forecast?${params}`;
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(
+            `Forecast request failed with status ${response.status}`,
+          );
+        }
+
+        const data = await response.json();
+        return data.daily; // the object of parallel arrays
+      };
+
+      // STEP 3 — draw the forecast into the table.
+      // The data is parallel arrays, so we walk through the dates with
+      // .forEach. It hands us each date AND its position (index), and we read
+      // the matching value out of each of the other arrays at that index.
+      const renderForecast = (daily) => {
+        bodyEl.innerHTML = "";
+        daily.time.forEach((isoDate, index) => {
+          const row = document.createElement("tr");
+
+          const day = formatDay(isoDate);
+          const low = daily.temperature_2m_min[index];
+          const high = daily.temperature_2m_max[index];
+          const rain = daily.precipitation_sum[index];
+          const wind = daily.wind_speed_10m_max[index];
+
+          // Build all four cells in one go. This is safe here because every
+          // value is a number or a date we made ourselves, never text the
+          // user typed in.
+          row.innerHTML = `
+  <td>${day}</td>
+  <td>${low} °C</td>
+  <td>${high} °C</td>
+  <td>${rain} mm</td>
+  <td>${wind} km/h</td>
+`;
+          bodyEl.appendChild(row);
+        });
+      };
+
+      // Tie the three steps together. Each waits for the one before it,
+      // because step 2 needs the coordinates that step 1 discovers.
+      const searchWeather = async (name) => {
+        // Clear anything left over from a previous search.
+        bodyEl.innerHTML = "";
+        summaryEl.textContent = "";
+
+        try {
+          showStatus(`Looking up "${name}"...`, "info");
+          const place = await findPlace(name);
+
+          showStatus(
+            `Found ${place.name}, ${place.country}. Loading the forecast...`,
+            "info",
+          );
+          const daily = await loadForecast(place.latitude, place.longitude);
+
+          renderForecast(daily);
+          summaryEl.textContent = `${FORECAST_DAYS}-day forecast for ${place.name}, ${place.country}.`;
+          showStatus("Done.", "success");
+        } catch (error) {
+          // Any failure in any step lands here with a readable message.
+          showStatus(`Could not load the forecast: ${error.message}`, "danger");
+        }
+      };
+
+      // Set up the page. We do NOT search on load: the page starts empty and
+      // waits for the user to type a place and press Search.
+      const main = () => {
+        // When the form is submitted, run a search for whatever was typed.
+        formEl.addEventListener("submit", (event) => {
+          // Stop the browser from reloading the page on submit.
+          event.preventDefault();
+
+          // .trim() removes spaces from the start and end of the text.
+          const name = inputEl.value.trim();
+          if (name.length === 0) {
+            showStatus("Please type the name of a place first.", "warning");
+            return;
+          }
+
+          searchWeather(name);
+        });
+      };
+
+      main();
+    </script>
+  </body>
+</html>
